@@ -1,216 +1,94 @@
-import streamlit as st
+"""
+mars_simulation.py
+지구과학Ⅱ: 케플러 법칙 + 좌표계 변환 + 천동설/지동설 역행운동 비교
+"""
 
 import numpy as np
-
-from astropy.io import fits
-
-from PIL import Image
-
-from astropy.coordinates import SkyCoord, EarthLocation, AltAz
-
-from astropy.time import Time
-
-from datetime import datetime
-
-
-# --- Streamlit 앱 페이지 설정 ---
-
-st.set_page_config(page_title="천문 이미지 분석기", layout="wide")
-
-st.title("🔭 천문 이미지 처리 앱")
-
-
-# --- 파일 업로더 ---
-
-uploaded_file = st.file_uploader(
-
-    "분석할 FITS 파일을 선택하세요.",
-
-    type=['fits', 'fit', 'fz']
-
-)
-
-
-# --- 서울 위치 설정 (고정값) ---
-
-seoul_location = EarthLocation(lat=37.5665, lon=126.9780, height=50)  # 서울 위도/경도/고도
-
-
-# --- 현재 시간 (UTC 기준) ---
-
-now = datetime.utcnow()
-
-now_astropy = Time(now)
-
-
-# --- 파일이 업로드되면 실행될 로직 ---
-
-if uploaded_file:
-
-    try:
-
-        with fits.open(uploaded_file) as hdul:
-
-            image_hdu = None
-
-            for hdu in hdul:
-
-                if hdu.data is not None and hdu.is_image:
-
-                    image_hdu = hdu
-
-                    break
-
-
-            if image_hdu is None:
-
-                st.error("파일에서 유효한 이미지 데이터를 찾을 수 없습니다.")
-
-            else:
-
-                header = image_hdu.header
-
-                data = image_hdu.data
-
-                data = np.nan_to_num(data)
-
-
-                st.success(f"**'{uploaded_file.name}'** 파일을 성공적으로 처리했습니다.")
-
-                col1, col2 = st.columns(2)
-
-
-                with col1:
-
-                    st.header("이미지 정보")
-
-                    st.text(f"크기: {data.shape[1]} x {data.shape[0]} 픽셀")
-
-                    if 'OBJECT' in header:
-
-                        st.text(f"관측 대상: {header['OBJECT']}")
-
-                    if 'EXPTIME' in header:
-
-                        st.text(f"노출 시간: {header['EXPTIME']} 초")
-
-
-                    st.header("물리량")
-
-                    mean_brightness = np.mean(data)
-
-                    st.metric(label="이미지 전체 평균 밝기", value=f"{mean_brightness:.2f}")
-
-
-                with col2:
-
-                    st.header("이미지 미리보기")
-
-                    if data.max() == data.min():
-
-                        norm_data = np.zeros(data.shape, dtype=np.uint8)
-
-                    else:
-
-                        scale_min = np.percentile(data, 5)
-
-                        scale_max = np.percentile(data, 99.5)
-
-                        data_clipped = np.clip(data, scale_min, scale_max)
-
-                        norm_data = (255 * (data_clipped - scale_min) / (scale_max - scale_min)).astype(np.uint8)
-
-
-                    img = Image.fromarray(norm_data)
-
-                    st.image(img, caption="업로드된 FITS 이미지", use_container_width=True)
-
-
-
-                # --- 사이드바: 현재 천체 위치 계산 ---
-
-                st.sidebar.header("🧭 현재 천체 위치 (서울 기준)")
-
-
-                if 'RA' in header and 'DEC' in header:
-
-                    try:
-
-                        target_coord = SkyCoord(ra=header['RA'], dec=header['DEC'], unit=('hourangle', 'deg'))
-
-                        altaz = target_coord.transform_to(AltAz(obstime=now_astropy, location=seoul_location))
-
-                        altitude = altaz.alt.degree
-
-                        azimuth = altaz.az.degree
-
-
-                        st.sidebar.metric("고도 (°)", f"{altitude:.2f}")
-
-                        st.sidebar.metric("방위각 (°)", f"{azimuth:.2f}")
-
-                    except Exception as e:
-
-                        st.sidebar.warning(f"천체 위치 계산 실패: {e}")
-
-                else:
-
-                    st.sidebar.info("FITS 헤더에 RA/DEC 정보가 없습니다.")
-
-
-    except Exception as e:
-
-        st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
-
-        st.warning("파일이 손상되었거나 유효한 FITS 형식이 아닐 수 있습니다.")
-
-else:
-
-    st.info("시작하려면 FITS 파일을 업로드해주세요.")
-
-
-# --- 💬 댓글 기능 (세션 기반) ---
-
-st.divider()
-
-st.header("💬 의견 남기기")
-
-
-if "comments" not in st.session_state:
-
-    st.session_state.comments = []
-
-
-with st.form(key="comment_form"):
-
-    name = st.text_input("이름을 입력하세요", key="name_input")
-
-    comment = st.text_area("댓글을 입력하세요", key="comment_input")
-
-    submitted = st.form_submit_button("댓글 남기기")
-
-
-    if submitted:
-
-        if name.strip() and comment.strip():
-
-            st.session_state.comments.append((name.strip(), comment.strip()))
-
-            st.success("댓글이 저장되었습니다.")
-
-        else:
-
-            st.warning("이름과 댓글을 모두 입력해주세요.")
-
-
-if st.session_state.comments:
-
-    st.subheader("📋 전체 댓글")
-
-    for i, (n, c) in enumerate(reversed(st.session_state.comments), 1):
-
-        st.markdown(f"**{i}. {n}**: {c}")
-
-else:
-
-    st.info("아직 댓글이 없습니다. 첫 댓글을 남겨보세요!")
+import matplotlib.pyplot as plt
+
+# ── 궤도요소 (근사값) ──────────────────────────────
+EARTH = dict(a=1.0, e=0.0167, period=365.256, M0=100.46)
+MARS  = dict(a=1.524, e=0.0934, period=686.98, M0=19.35)
+OBLIQUITY = 23.4393  # 황도경사각(deg)
+
+
+# ── 1. 케플러 방정식 & 궤도 위치 계산 ──────────────
+def solve_kepler(M, e, tol=1e-8):
+    M = np.radians(M)
+    E = M
+    for _ in range(50):
+        E -= (E - e * np.sin(E) - M) / (1 - e * np.cos(E))
+    return E
+
+
+def planet_xy(elements, t_days):
+    """공전 기준시각(t_days)에서의 태양중심 황도좌표 (x, y)"""
+    n = 360.0 / elements["period"]
+    M = (elements["M0"] + n * t_days) % 360.0
+    E = solve_kepler(M, elements["e"])
+    a, e = elements["a"], elements["e"]
+    x = a * (np.cos(E) - e)
+    y = a * np.sqrt(1 - e**2) * np.sin(E)
+    return x, y
+
+
+# ── 2. 좌표계 변환: 황도 → 적도 → 지평 ─────────────
+def ecliptic_to_equatorial(x, y, z=0):
+    eps = np.radians(OBLIQUITY)
+    y_eq = y * np.cos(eps) - z * np.sin(eps)
+    z_eq = y * np.sin(eps) + z * np.cos(eps)
+    ra = np.degrees(np.arctan2(y_eq, x)) % 360
+    dec = np.degrees(np.arcsin(z_eq / np.sqrt(x**2 + y_eq**2 + z_eq**2)))
+    return ra, dec
+
+
+def equatorial_to_horizontal(ra, dec, lst_deg, lat_deg):
+    """LST(지방항성시, deg)와 관측자 위도(deg)로 고도/방위각 계산"""
+    H = np.radians(lst_deg - ra)
+    lat, dec = np.radians(lat_deg), np.radians(dec)
+    alt = np.arcsin(np.sin(dec) * np.sin(lat) + np.cos(dec) * np.cos(lat) * np.cos(H))
+    cos_az = (np.sin(dec) - np.sin(lat) * np.sin(alt)) / (np.cos(lat) * np.cos(alt))
+    az = np.degrees(np.arccos(np.clip(cos_az, -1, 1)))
+    az = 360 - az if np.sin(H) > 0 else az
+    return np.degrees(alt), az
+
+
+# ── 3. 천동설(주전원) vs 지동설(케플러) 겉보기 황경 ─
+def copernican_longitude(t_days):
+    ex, ey = planet_xy(EARTH, t_days)
+    mx, my = planet_xy(MARS, t_days)
+    return np.degrees(np.arctan2(my - ey, mx - ex)) % 360
+
+
+def ptolemaic_longitude(t_days, deferent_r=1.0, epicycle_r=0.4,
+                         deferent_period=780, epicycle_period=687):
+    theta_d = np.radians(360 * t_days / deferent_period)
+    cx, cy = deferent_r * np.cos(theta_d), deferent_r * np.sin(theta_d)
+    theta_e = np.radians(360 * t_days / epicycle_period)
+    mx = cx + epicycle_r * np.cos(theta_e)
+    my = cy + epicycle_r * np.sin(theta_e)
+    return np.degrees(np.arctan2(my, mx)) % 360
+
+
+# ── 실행 ────────────────────────────────────────
+if __name__ == "__main__":
+    # (A) 역행운동 비교 그래프
+    t = np.arange(0, 780, 5)
+    lon_cop = np.array([copernican_longitude(d) for d in t])
+    lon_ptol = np.array([ptolemaic_longitude(d) for d in t])
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(t, lon_cop, label="Copernicus/Kepler model")
+    plt.plot(t, lon_ptol, "--", label="Ptolemy epicycle model")
+    plt.xlabel("Days"); plt.ylabel("Mars apparent longitude (deg)")
+    plt.title("Mars Retrograde Motion: Two Models")
+    plt.legend(); plt.grid(alpha=0.3)
+    plt.savefig("retrograde_comparison.png", dpi=150)
+    print("그래프 저장: retrograde_comparison.png")
+
+    # (B) 좌표계 변환 예시: 특정 날짜 화성의 고도/방위각
+    ex, ey = planet_xy(EARTH, 100)
+    mx, my = planet_xy(MARS, 100)
+    ra, dec = ecliptic_to_equatorial(mx - ex, my - ey)
+    alt, az = equatorial_to_horizontal(ra, dec, lst_deg=150, lat_deg=37.5)
+    print(f"RA={ra:.2f}°, Dec={dec:.2f}°, Alt={alt:.2f}°, Az={az:.2f}°")

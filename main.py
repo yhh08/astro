@@ -50,17 +50,23 @@ def apparent_longitude(ex, ey, mx, my):
 
 
 # ── Geocentric (Deferent-Epicycle) Model ─────────────────────
-# Derived from the identity: geocentric Mars position = heliocentric Mars − heliocentric Earth.
-# So the deferent (period & radius) must match Mars' real orbit, and the epicycle
-# (period & radius) must match Earth's real orbit, traced in the opposite sense.
-# This guarantees the deferent/epicycle model is mathematically equivalent to the
-# Copernican model at every instant (same period, same radius, same phase) —
-# which is precisely the historical/pedagogical point: a well-built epicycle
-# system can reproduce the same apparent positions as a heliocentric one.
+# Historically, Ptolemy assumed UNIFORM CIRCULAR motion (no eccentricity),
+# not the true Keplerian ellipse. We reproduce that simplification here:
+# deferent = Mars' orbit approximated as a perfect circle (radius = MARS["a"],
+# period = MARS["period"]), epicycle = Earth's orbit approximated as a perfect
+# circle (radius = EARTH["a"], period = EARTH["period"]). Because real orbits
+# are elliptical (Mars e ≈ 0.093, much larger than Earth's e ≈ 0.017), this
+# circular approximation genuinely diverges from the true heliocentric
+# (Keplerian) position — the divergence is the actual historical limitation
+# that eventually pointed Kepler toward elliptical orbits.
 def ptolemaic_positions(day):
-    cx, cy = planet_xy(MARS, day)          # deferent center's path = Mars' real heliocentric orbit
-    ex, ey = planet_xy(EARTH, day)         # epicycle offset = Earth's real heliocentric orbit
-    mx, my = cx - ex, cy - ey              # Mars as seen from Earth
+    theta_d = np.radians((MARS["M0"] + 360.0 / MARS["period"] * day) % 360.0)
+    cx, cy = MARS["a"] * np.cos(theta_d), MARS["a"] * np.sin(theta_d)
+
+    theta_e = np.radians((EARTH["M0"] + 360.0 / EARTH["period"] * day) % 360.0)
+    ex, ey = EARTH["a"] * np.cos(theta_e), EARTH["a"] * np.sin(theta_e)
+
+    mx, my = cx - ex, cy - ey
     return cx, cy, mx, my
 
 
@@ -94,9 +100,8 @@ def draw_ptolemaic(day):
     cx, cy, mx, my = ptolemaic_positions(day)
     theta = np.linspace(0, 2 * np.pi, 200)
 
-    # Circles drawn here use the mean radii (MARS["a"], EARTH["a"]) for a clean
-    # visual guide only; the actual plotted points still follow the true
-    # elliptical (Keplerian) motion computed in ptolemaic_positions().
+    # Here the deferent and epicycle really are perfect circles (Ptolemy's
+    # assumption), so the drawn circles exactly match the point's path.
     deferent_r = MARS["a"]
     epicycle_r = EARTH["a"]
 
@@ -131,6 +136,34 @@ def draw_sky_compass(lon_cop, lon_ptol):
     return fig
 
 
+def angular_diff(a, b):
+    """Shortest signed angular difference a-b, wrapped to [-180, 180]."""
+    return (a - b + 180) % 360 - 180
+
+
+def draw_error_over_time(current_day, n_days=780, n_points=400):
+    days = np.linspace(0, n_days, n_points)
+    errors = []
+    for d in days:
+        ex, ey = planet_xy(EARTH, d)
+        mx, my = planet_xy(MARS, d)
+        lon_true = apparent_longitude(ex, ey, mx, my)
+        _, _, pmx, pmy = ptolemaic_positions(d)
+        lon_ptol = apparent_longitude(0, 0, pmx, pmy)
+        errors.append(angular_diff(lon_ptol, lon_true))
+    errors = np.array(errors)
+
+    fig, ax = plt.subplots(figsize=(10, 3))
+    ax.axhline(0, color="gray", linewidth=0.8)
+    ax.plot(days, errors, "m-", label="Ptolemaic (circular) error vs true position")
+    ax.axvline(current_day, color="green", linestyle="--", alpha=0.6, label="Current day")
+    ax.set_xlabel("Elapsed days")
+    ax.set_ylabel("Error (deg)")
+    ax.set_title("Geocentric circular model's apparent-longitude error over one synodic cycle")
+    ax.legend(loc="upper right", fontsize=8)
+    return fig, errors
+
+
 # ── Layout ────────────────────────────────────
 day = st.slider("Elapsed days (Mars synodic period ≈ 780 days)", 0, 780, 100)
 
@@ -147,14 +180,30 @@ st.subheader("Comparison of Mars' Actual Sky Position")
 fig_sky = draw_sky_compass(lon_cop, lon_ptol)
 st.pyplot(fig_sky)
 
+st.subheader("Error of the Geocentric (Circular) Model Over Time")
+fig_err, err_array = draw_error_over_time(day)
+st.pyplot(fig_err)
+current_error = angular_diff(lon_ptol, lon_cop)
+
 st.markdown(f"""
-- **Heliocentric model**: Calculated using the real orbital positions of Earth and Mars around the Sun, the direction of Mars as seen from Earth (ecliptic longitude) = **{lon_cop:.1f}°**
-- **Geocentric model**: Calculated using a deferent (period/radius = Mars' real orbit) and epicycle (period/radius = Earth's real orbit), the direction of Mars (ecliptic longitude) = **{lon_ptol:.1f}°**
-- Because the geocentric model here is built directly from the identity
-  (geocentric position = heliocentric Mars − heliocentric Earth), the two longitudes
-  above should match at every instant — this is the historical point: a correctly
-  constructed epicycle system reproduces the same observations as the heliocentric model.
-- Moving the slider to around day 285–360 shows the interval where Earth overtakes
-  Mars in its orbit, causing Mars to appear to move briefly backward (retrograde) in the sky —
-  visible in both models simultaneously.
+- **Heliocentric model** (true, elliptical/Keplerian orbits): Mars' direction as seen from Earth (ecliptic longitude) = **{lon_cop:.1f}°**
+- **Geocentric model** (Ptolemy's assumption: perfect circles, uniform motion, no eccentricity): predicted direction = **{lon_ptol:.1f}°**
+- **Error at this moment**: **{current_error:+.2f}°**
+- This error exists *because* Ptolemy's model ignores orbital eccentricity. Mars'
+  real eccentricity (e ≈ 0.093) is over five times Earth's (e ≈ 0.017), so treating
+  Mars' orbit as a perfect circle introduces a real, measurable error — this is not
+  a rounding artifact, it is the actual structural limitation of the geocentric model.
+- The error chart above shows this discrepancy is not constant: it grows and shrinks
+  over the course of the {780}-day synodic cycle, peaking when Mars is near
+  perihelion/aphelion in its real elliptical orbit. This kind of persistent,
+  systematic mismatch between predicted and observed planetary position is exactly
+  what led Kepler (using Tycho Brahe's precise Mars observations) to abandon
+  circular orbits in favor of ellipses.
+- **Caveat for the report**: the historical Ptolemaic system also used devices like
+  the *equant* to partially compensate for non-uniform motion, so real Ptolemaic
+  predictions were somewhat better than this simplified circular version. This
+  simulation isolates the eccentricity-approximation error specifically, as a
+  clear, single-cause illustration of why circular geocentric models ultimately fail —
+  it should be described as a simplified model, not a literal reconstruction of
+  Ptolemy's full equant-based system.
 """)

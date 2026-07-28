@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 st.title("Where is Mars: Geocentric vs Heliocentric Model")
 
 # ── Orbital elements (approximate) ──────────────────────────────
-EARTH = dict(a=1.0, e=0.0167, period=365.256, M0=100.46)
+EARTH = dict(a=1.0, e=0.0167, period=365.256, M0=-2.47)   # FIXED: was 100.46 (that was Earth's mean LONGITUDE, not mean anomaly)
 MARS  = dict(a=1.524, e=0.0934, period=686.98, M0=19.35)
 
 
